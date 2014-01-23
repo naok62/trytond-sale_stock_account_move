@@ -12,23 +12,23 @@ msgstr ""
 
 msgctxt "field:account.invoice.line,pending_out_invoice_account:"
 msgid "Pending Invoice Account"
-msgstr "Compte factures pendents"
+msgstr "Cuenta de facturas pendientes"
 
 msgctxt "field:sale.configuration,pending_invoice_account:"
 msgid "Pending Invoice Account"
-msgstr "Compte factures pendents"
+msgstr "Cuenta de facturas pendientes"
 
 msgctxt "field:sale.configuration.company,company:"
 msgid "Company"
-msgstr "Compte factures pendents"
+msgstr "Empresa"
 
 msgctxt "field:sale.configuration.company,create_date:"
 msgid "Create Date"
-msgstr "Data de creació"
+msgstr "Fecha de creación"
 
 msgctxt "field:sale.configuration.company,create_uid:"
 msgid "Create User"
-msgstr "Usuari de creació"
+msgstr "Usuario de creación"
 
 msgctxt "field:sale.configuration.company,id:"
 msgid "ID"
@@ -40,16 +40,16 @@ msgstr "Compte factures pendents"
 
 msgctxt "field:sale.configuration.company,rec_name:"
 msgid "Name"
-msgstr "Nom del camp"
+msgstr "Nombre"
 
 msgctxt "field:sale.configuration.company,write_date:"
 msgid "Write Date"
-msgstr "Data modificació"
+msgstr "Fecha modificación"
 
 msgctxt "field:sale.configuration.company,write_uid:"
 msgid "Write User"
-msgstr "Usuari modificació"
+msgstr "Usuario modificación"
 
 msgctxt "model:sale.configuration.company,name:"
-msgid "Sale Configuration by Company"
-msgstr "Configuració per empresa"
+msgid "Sale Configuration per Company"
+msgstr "Configuración de ventas por empresa"

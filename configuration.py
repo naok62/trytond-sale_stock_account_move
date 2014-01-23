@@ -57,7 +57,7 @@ class Configuration:
 
 
 class ConfigurationCompany(ModelSQL):
-    'Sale Configuration by Company'
+    'Sale Configuration per Company'
     __name__ = 'sale.configuration.company'
 
     company = fields.Many2One('company.company', 'Company', required=True,
