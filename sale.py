@@ -213,7 +213,7 @@ class InvoiceLine:
     def __setup__(cls):
         super(InvoiceLine, cls).__setup__()
         if not 'pending_out_invoice_account' in cls.account.depends:
-            receivable = ('id', '=', Eval('pending_out_invoice_account'))
+            receivable = ('id', '=', Eval('pending_out_invoice_account', -1))
             cls.account.domain = ['OR', cls.account.domain, receivable]
             cls.account.depends.append('pending_out_invoice_account')
 
@@ -223,8 +223,10 @@ class InvoiceLine:
         Config = pool.get('sale.configuration')
         config = Config(1)
 
-        account = dict((i.id, config.pending_invoice_account.id)
-            for i in invoices)
+        default_account = (config.pending_invoice_account.id
+            if config.pending_invoice_account else None)
+
+        account = dict((i.id, default_account) for i in invoices)
         result = {}
         for name in names:
             result[name] = account
