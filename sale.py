@@ -18,9 +18,10 @@ class Sale:
     def __setup__(cls):
         super(Sale, cls).__setup__()
         cls._error_messages.update({
-                'no_pending_invoice_account': 'There is no Pending Invoice '
-                'Account Defined. Please define one in sale configuration.',
-            })
+                'no_pending_invoice_account': ('There is no Pending Invoice '
+                    'Account Defined. Please define one in sale '
+                    'configuration.'),
+                })
 
     @classmethod
     def process(cls, sales):
@@ -32,7 +33,7 @@ class Sale:
                     sale.reconcile_moves()
 
     def create_account_move(self):
-        " Creates account move for not invoiced shipments "
+        "Creates account move for not invoiced shipments"
         pool = Pool()
         Move = pool.get('account.move')
         Config = pool.get('sale.configuration')
@@ -49,7 +50,7 @@ class Sale:
             Move.post([move])
 
     def reconcile_moves(self):
-        " Reconciles account moves if sale is finished "
+        "Reconciles account moves if sale is finished"
         pool = Pool()
         Line = pool.get('account.move.line')
         Config = pool.get('sale.configuration')
@@ -76,7 +77,7 @@ class Sale:
             Line.reconcile(lines)
 
     def _get_shipment_amount(self):
-        " Returns the shipped amount grouped by account"
+        "Returns the shipped amount grouped by account"
         pool = Pool()
         Uom = pool.get('product.uom')
         Currency = pool.get('currency.currency')
@@ -102,7 +103,7 @@ class Sale:
         return ret
 
     def _get_accounting_amount(self):
-        " Returns the amount in accounting for this sale"
+        "Returns the amount in accounting for this sale"
         pool = Pool()
         Line = pool.get('account.move.line')
         Config = pool.get('sale.configuration')
@@ -118,7 +119,7 @@ class Sale:
         return sum(l.debit - l.credit for l in lines)
 
     def _get_account_move(self):
-        " Return the move object to create "
+        "Return the move object to create"
         pool = Pool()
         Move = pool.get('account.move')
         Date = pool.get('ir.date')
@@ -145,7 +146,7 @@ class Sale:
             )
 
     def _get_account_move_lines(self):
-        " Return the move object to create "
+        "Return the move object to create"
         pool = Pool()
         Account = pool.get('account.account')
         Line = pool.get('account.move.line')
