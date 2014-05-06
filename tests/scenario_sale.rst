@@ -353,21 +353,24 @@ Validate Shipments::
     >>> ShipmentOut.done([shipment.id], config.context)
     >>> config.user = account_user.id
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account', '=', pending_receivable.id)
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account', '=', pending_receivable.id),
     ...     ])
     >>> len(account_moves) == 1
     True
     >>> sum([a.debit for a in account_moves]) == Decimal('600.0')
     True
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account.code', '=', 'R1')
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account.code', '=', 'R1'),
     ...     ])
     >>> len(account_moves) == 1
     True
     >>> sum([a.credit for a in account_moves]) == Decimal('225.0')
     True
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account.code', '=', 'R2')
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account.code', '=', 'R2'),
     ...     ])
     >>> len(account_moves) == 1
     True
@@ -383,21 +386,24 @@ Validate Shipments::
     >>> ShipmentOut.done([shipment.id], config.context)
     >>> config.user = account_user.id
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account', '=', pending_receivable.id)
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account', '=', pending_receivable.id),
     ...     ])
     >>> len(account_moves) == 2
     True
     >>> sum([a.debit for a in account_moves]) == Decimal('800.0')
     True
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account.code', '=', 'R1')
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account.code', '=', 'R1'),
     ...     ])
     >>> len(account_moves) == 2
     True
     >>> sum([a.credit for a in account_moves]) == Decimal('300.0')
     True
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account.code', '=', 'R2')
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account.code', '=', 'R2'),
     ...     ])
     >>> len(account_moves) == 2
     True
@@ -413,26 +419,81 @@ Open customer invoice::
     >>> config.user = account_user.id
     >>> Invoice.post([invoice1.id], config.context)
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account', '=', pending_receivable.id)
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account', '=', pending_receivable.id),
+    ...     ('reconciliation', '=', None),
     ...     ])
-    >>> len(account_moves) == 4
+    >>> line, = account_moves
+    >>> line.debit == Decimal('200.0')
     True
-    >>> sum([a.debit for a in account_moves]) == Decimal('800.0')
+    >>> account_moves = AccountMoveLine.find([
+    ...     ('account.code', '=', 'R1'),
+    ...     ])
+    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('300.0')
     True
-    >>> sum([a.credit for a in account_moves]) == Decimal('600.0')
+    >>> account_moves = AccountMoveLine.find([
+    ...     ('account.code', '=', 'R2'),
+    ...     ])
+    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('500.0')
     True
     >>> Invoice.post([invoice2.id], config.context)
     >>> account_moves = AccountMoveLine.find([
-    ...     ('account', '=', pending_receivable.id)
+    ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
+    ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> len(account_moves) == 6
-    True
-    >>> sum([a.debit for a in account_moves]) == Decimal('800.0')
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('800.0')
+    >>> sum([a.debit - a.credit for a in account_moves]) == Decimal('0.0')
     True
     >>> all(a.reconciliation is not None for a in account_moves)
     True
+    >>> account_moves = AccountMoveLine.find([
+    ...     ('account.code', '=', 'R1'),
+    ...     ])
+    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('300.0')
+    True
+    >>> account_moves = AccountMoveLine.find([
+    ...     ('account.code', '=', 'R2'),
+    ...     ])
+    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('500.0')
+    True
+
+
+Sell products and invoice with diferent amount::
+
+    >>> config.user = sale_user.id
+    >>> Sale = Model.get('sale.sale')
+    >>> SaleLine = Model.get('sale.line')
+    >>> sale = Sale()
+    >>> sale.party = customer
+    >>> sale.payment_term = payment_term
+    >>> sale_line = SaleLine()
+    >>> sale.lines.append(sale_line)
+    >>> sale_line.product = product1
+    >>> sale_line.quantity = 20.0
+    >>> sale.save()
+    >>> Sale.quote([sale.id], config.context)
+    >>> Sale.confirm([sale.id], config.context)
+    >>> Sale.process([sale.id], config.context)
+    >>> sale.state
+    u'processing'
+    >>> sale.reload()
+    >>> len(sale.shipments), len(sale.shipment_returns), len(sale.invoices)
+    (1, 0, 0)
+    >>> shipment, = sale.shipments
+    >>> shipment.origins == sale.rec_name
+    True
+    >>> config.user = stock_user.id
+    >>> ShipmentOut.assign_try([shipment.id], config.context)
+    True
+    >>> ShipmentOut.pack([shipment.id], config.context)
+    >>> ShipmentOut.done([shipment.id], config.context)
+    >>> config.user = sale_user.id
+    >>> sale.reload()
+    >>> invoice, = sale.invoices
+    >>> config.user = account_user.id
+    >>> line, = invoice.lines
+    >>> line.unit_price = Decimal('14.0')
+    >>> line.save()
+    >>> Invoice.post([invoice.id], config.context)
 
 
 Create a Return::
@@ -475,6 +536,7 @@ Check Return Shipments::
     >>> config.user = account_user.id
     >>> account_moves = AccountMoveLine.find([
     ...     ('reconciliation', '=', None),
+    ...     ('origin', '=', 'sale.sale,' + str(return_.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
     >>> len(account_moves) == 1
@@ -497,6 +559,7 @@ Open customer credit note::
     >>> Invoice.post([credit_note.id], config.context)
     >>> account_moves = AccountMoveLine.find([
     ...     ('reconciliation', '=', None),
+    ...     ('origin', '=', 'sale.sale,' + str(return_.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
     >>> len(account_moves) == 0

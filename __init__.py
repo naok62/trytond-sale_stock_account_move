@@ -10,7 +10,6 @@ def register():
         Configuration,
         ConfigurationCompany,
         Sale,
-        SaleLine,
-        InvoiceLine,
         Move,
+        Line,
         module='sale_stock_account_move', type_='model')
