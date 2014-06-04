@@ -414,9 +414,9 @@ Open customer invoice::
 
     >>> config.user = sale_user.id
     >>> sale.reload()
-    >>> Invoice = Model.get('account.invoice')
     >>> invoice1, invoice2 = sale.invoices
     >>> config.user = account_user.id
+    >>> Invoice = Model.get('account.invoice')
     >>> Invoice.post([invoice1.id], config.context)
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
@@ -437,6 +437,7 @@ Open customer invoice::
     >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('500.0')
     True
     >>> Invoice.post([invoice2.id], config.context)
+    >>> AccountMoveLine = Model.get('account.move.line')
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account', '=', pending_receivable.id),
@@ -489,9 +490,9 @@ Sell products and invoice with diferent amount::
     >>> config.user = sale_user.id
     >>> sale.reload()
     >>> invoice, = sale.invoices
-    >>> config.user = account_user.id
     >>> line, = invoice.lines
     >>> line.unit_price = Decimal('14.0')
+    >>> config.user = account_user.id
     >>> line.save()
     >>> Invoice.post([invoice.id], config.context)
 
