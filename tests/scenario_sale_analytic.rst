@@ -330,10 +330,9 @@ Validate Shipments::
     >>> moves = sale.moves
     >>> config.user = stock_user.id
     >>> ShipmentOut = Model.get('stock.shipment.out')
-    >>> for move in moves:
+    >>> for move in shipment.inventory_moves:
     ...     move.quantity = 15.0
-    ...     move.save()
-    >>> shipment.reload()
+    >>> shipment.save()
     >>> ShipmentOut.assign_try([shipment.id], config.context)
     True
     >>> ShipmentOut.pack([shipment.id], config.context)

@@ -52,6 +52,10 @@ class TestCase(unittest.TestCase):
 
 def suite():
     suite = trytond.tests.test_tryton.suite()
+    from trytond.modules.company.tests import test_company
+    for test in test_company.suite():
+        if test not in suite:
+            suite.addTest(test)
     suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestCase))
     suite.addTests(doctest.DocFileSuite('scenario_sale.rst',
             setUp=doctest_dropdb, tearDown=doctest_dropdb, encoding='utf-8',
