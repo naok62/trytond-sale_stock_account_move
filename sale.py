@@ -74,7 +74,8 @@ class Sale:
         for sale_line, invoice_amount in invoiced.iteritems():
             line = Line()
             line.account = sale_line.product.account_revenue_used
-            line.party = self.party
+            if line.account.party_required:
+                line.party = self.party
             if invoice_amount > _ZERO:
                 line.debit = invoice_amount
                 line.credit = _ZERO
@@ -89,7 +90,8 @@ class Sale:
         amount = sum(l.debit - l.credit for l in to_reconcile)
         line = Line()
         line.account = config.pending_invoice_account
-        line.party = self.party
+        if line.account.party_required:
+            line.party = self.party
         if amount > Decimal('0.0'):
             line.credit = amount
         else:
@@ -104,7 +106,8 @@ class Sale:
         pending_amount = amount - total_invoiced_amount
         line = Line()
         line.account = config.pending_invoice_account
-        line.party = self.party
+        if line.account.party_required:
+            line.party = self.party
         if pending_amount > Decimal('0.0'):
             line.debit = pending_amount
         else:
@@ -260,7 +263,8 @@ class Sale:
             account = sale_line.product.account_revenue_used
             line = Line()
             line.account = account
-            line.party = self.party
+            if line.account.party_required:
+                line.party = self.party
             line.sale_line = sale_line
             amount = Currency.compute(self.company.currency,
                 Decimal(quantity) * sale_line.unit_price, self.currency)
@@ -278,7 +282,8 @@ class Sale:
         #Line with invoice_pending amount
         line = Line()
         line.account = config.pending_invoice_account
-        line.party = self.party
+        if line.account.party_required:
+            line.party = self.party
         if shipment_amount > 0:
             line.debit = abs(shipment_amount)
         else:
@@ -308,7 +313,8 @@ class Sale:
                     line.journal = self._get_accounting_journal()
                     line.date = Date.today()
                     line.reference = self.reference
-                    line.party = move_line.party
+                    if hasattr(move_line, 'party'):
+                        line.party = move_line.party
                     lines.append(line)
         move_line.analytic_lines = lines
         return lines
