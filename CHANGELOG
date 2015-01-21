@@ -1,3 +1,9 @@
+Version 3.4.1 - 2015-01-19
+* Create analytic lines for created account moves
+* If analytic_sale and analytic_line_state are installed, set analytic flag
+  for analytic accounts field in sale line if product's account requires
+  analytics
+
 Version 3.4.0 - 2014-11-05
 
 Version 3.2.0 - 2014-06-04

@@ -343,8 +343,8 @@ Validate Shipments::
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> len(account_moves) == 1
-    True
+    >>> len(account_moves)
+    2
     >>> sum([a.debit for a in account_moves]) == Decimal('600.0')
     True
     >>> account_moves = AccountMoveLine.find([
@@ -379,9 +379,9 @@ Validate Shipments::
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> len(account_moves) == 2
-    True
-    >>> sum([a.debit for a in account_moves]) == Decimal('800.0')
+    >>> len(account_moves)
+    6
+    >>> sum([a.debit - a.credit for a in account_moves]) == Decimal('800.0')
     True
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),

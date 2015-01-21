@@ -4,11 +4,46 @@ from decimal import Decimal
 
 from trytond.model import fields
 from trytond.pool import Pool, PoolMeta
+from trytond.pyson import Eval
 from trytond.transaction import Transaction
 
-__all__ = ['Sale', 'Move', 'Line']
+__all__ = ['StockMove', 'Sale', 'SaleLine', 'Move', 'MoveLine']
 __metaclass__ = PoolMeta
 _ZERO = Decimal('0.0')
+
+
+# TODO: put it in account_invoice_stock
+class StockMove:
+    __name__ = 'stock.move'
+
+    @property
+    def posted_quantity(self):
+        'The quantity from linked invoice lines in move unit'
+        pool = Pool()
+        Uom = pool.get('product.uom')
+        quantity = 0
+        for invoice_line in self.invoice_lines:
+            if (invoice_line.invoice and
+                    invoice_line.invoice.state in ('posted', 'paid')):
+                quantity += Uom.compute_qty(invoice_line.unit,
+                    invoice_line.quantity, self.uom)
+        return quantity
+
+
+class Move:
+    __name__ = 'account.move'
+
+    @classmethod
+    def _get_origin(cls):
+        origins = super(Move, cls)._get_origin()
+        if 'sale.sale' not in origins:
+            origins.append('sale.sale')
+        return origins
+
+
+class MoveLine:
+    __name__ = 'account.move.line'
+    sale_line = fields.Many2One('sale.line', 'Sale Line')
 
 
 class Sale:
@@ -27,167 +62,72 @@ class Sale:
     def process(cls, sales):
         super(Sale, cls).process(sales)
         for sale in sales:
-            if sale.invoice_method not in ['manual', 'order']:
-                with Transaction().set_user(0, set_context=True):
-                    sale.create_account_move()
-                    sale.reconcile_moves()
+            sale.create_stock_account_move()
 
-    def create_account_move(self):
-        "Creates account move for not invoiced shipments"
+    def create_stock_account_move(self):
+        """
+        Create, post and reconcile an account_move (if it is required to do)
+        with lines related to Pending Invoices accounts.
+        """
         pool = Pool()
-        Move = pool.get('account.move')
         Config = pool.get('sale.configuration')
+        Move = pool.get('account.move')
+        MoveLine = pool.get('account.move.line')
+
+        if self.invoice_method in ['manual', 'order']:
+            return
+
         config = Config(1)
         if not config.pending_invoice_account:
             self.raise_user_error('no_pending_invoice_account')
 
-        if (self._get_shipment_amount() - self._get_accounting_amount() !=
-                _ZERO):
-            move = self._get_account_move()
-            if move:
-                move.save()
-                Move.post([move])
+        with Transaction().set_user(0, set_context=True):
+            account_move = self._get_stock_account_move(
+                config.pending_invoice_account)
+            if account_move:
+                account_move.save()
+                Move.post([account_move])
 
-    def reconcile_moves(self):
-        "Reconciles account moves if sale is finished"
+                to_reconcile = MoveLine.search([
+                            ('move.origin', '=', str(self)),
+                            ('account', '=', config.pending_invoice_account),
+                            ('reconciliation', '=', None),
+                            ['OR',
+                                # previous pending line
+                                ('move', '!=', account_move),
+                                # current move "to reconcile line"
+                                ('sale_line', '=', None),
+                                ],
+                            ])
+                if to_reconcile:
+                    MoveLine.reconcile(to_reconcile)
+
+    def _get_stock_account_move(self, pending_invoice_account):
+        "Return the account move for shipped quantities"
         pool = Pool()
+        Date = pool.get('ir.date')
         Move = pool.get('account.move')
-        Line = pool.get('account.move.line')
-        Config = pool.get('sale.configuration')
+        Period = pool.get('account.period')
 
-        config = Config(1)
-        invoiced = self._get_invoiced_amount()
-        invoiced_amount = sum(invoiced.values(), _ZERO)
-
-        to_reconcile = Line.search([
-                    ('move.origin', '=', str(self)),
-                    ('account', '=', config.pending_invoice_account),
-                    ('reconciliation', '=', None),
-                    ])
-        if invoiced_amount == _ZERO or not to_reconcile:
+        if self.invoice_method in ['manual', 'order']:
             return
 
-        move = self._get_reconcile_move()
         move_lines = []
-        total_invoiced_amount = _ZERO
-        #One line for each sale line
-        for sale_line, invoice_amount in invoiced.iteritems():
-            line = Line()
-            line.account = sale_line.product.account_revenue_used
-            if line.account.party_required:
-                line.party = self.party
-            if invoice_amount > _ZERO:
-                line.debit = invoice_amount
-                line.credit = _ZERO
-            else:
-                line.credit = abs(invoice_amount)
-                line.debit = _ZERO
-            line.sale_line = sale_line
-            self._set_analytic_lines(line, sale_line)
-            move_lines.append(line)
-            total_invoiced_amount += invoice_amount
-
-        amount = sum(l.debit - l.credit for l in to_reconcile)
-        line = Line()
-        line.account = config.pending_invoice_account
-        if line.account.party_required:
-            line.party = self.party
-        if amount > Decimal('0.0'):
-            line.credit = amount
-        else:
-            line.debit = abs(amount)
-        line.reconciliation = None
-        move.lines = [line]
-        move.save()
-        #Reload in order to get the id and make reconcile work.
-        line, = move.lines
-        to_reconcile.append(line)
-
-        pending_amount = amount - total_invoiced_amount
-        line = Line()
-        line.account = config.pending_invoice_account
-        if line.account.party_required:
-            line.party = self.party
-        if pending_amount > Decimal('0.0'):
-            line.debit = pending_amount
-        else:
-            line.credit = abs(pending_amount)
-        move_lines.append(line)
-        move.lines += tuple(move_lines)
-
-        move.save()
-        Move.post([move])
-        Line.reconcile(to_reconcile)
-
-    def _get_shipment_quantity(self):
-        "Returns the shipped quantity grouped by sale_line"
-        pool = Pool()
-        Uom = pool.get('product.uom')
-        ret = {}
         for line in self.lines:
-            if not line.product or line.product.type == 'service':
-                continue
-            skip_ids = set(x.id for x in line.moves_ignored)
-            skip_ids.update(x.id for x in line.moves_recreated)
-            sign = -1 if line.quantity < 0.0 else 1
-            for move in line.moves:
-                if move.state != 'done' \
-                        and move.id not in skip_ids:
-                    continue
-                quantity = Uom.compute_qty(move.uom, move.quantity, line.unit)
-                quantity *= sign
-                if line in ret:
-                    ret[line] += quantity
-                else:
-                    ret[line] = quantity
-        return ret
+            move_lines += line._get_stock_account_move_lines(
+                pending_invoice_account)
+        if not move_lines:
+            return
 
-    def _get_shipment_amount(self):
-        "Returns the total shipped amount"
-        pool = Pool()
-        Currency = pool.get('currency.currency')
-        amount = _ZERO
-        for line, quantity in self._get_shipment_quantity().iteritems():
-            amount += Currency.compute(self.company.currency,
-                Decimal(quantity) * line.unit_price, self.currency)
-        return amount
-
-    def _get_accounting_amount(self):
-        "Returns the amount in accounting for this sale"
-        pool = Pool()
-        Line = pool.get('account.move.line')
-        Config = pool.get('sale.configuration')
-
-        config = Config(1)
-
-        lines = Line.search([
-                ('move.origin', '=', str(self)),
-                ('account', '=', config.pending_invoice_account),
-                ])
-        if not lines:
-            return Decimal('0.0')
-        return sum(l.debit - l.credit for l in lines)
-
-    def _get_invoiced_amount(self):
-        " Returns the invoiced amount grouped by account"
-        skip_ids = set(x.id for x in self.invoices_ignored)
-        skip_ids.update(x.id for x in self.invoices_recreated)
-        moves = [i.move for i in self.invoices if i.id not in skip_ids
-            and i.move]
-
-        ret = {}
-        for sale_line in self.lines:
-            for invoice_line in sale_line.invoice_lines:
-                if (invoice_line.invoice and invoice_line.invoice.move and
-                        invoice_line.invoice.move in moves):
-                    amount = invoice_line.amount
-                    if 'credit_note' in invoice_line.invoice_type:
-                        amount = amount.copy_negate()
-                    if sale_line in ret:
-                        ret[sale_line] += amount
-                    else:
-                        ret[sale_line] = amount
-        return ret
+        accounting_date = Date().today()
+        period_id = Period.find(self.company.id, date=accounting_date)
+        return Move(
+            origin=self,
+            period=period_id,
+            journal=self._get_accounting_journal(),
+            date=accounting_date,
+            lines=move_lines,
+            )
 
     def _get_accounting_journal(self):
         pool = Pool()
@@ -201,136 +141,173 @@ class Sale:
             journal = None
         return journal
 
-    def _get_account_move(self):
-        "Return the move object to create"
-        pool = Pool()
-        Move = pool.get('account.move')
-        Date = pool.get('ir.date')
-        Period = pool.get('account.period')
 
-        accounting_date = Date().today()
-        period_id = Period.find(self.company.id, date=accounting_date)
+class SaleLine:
+    __name__ = 'sale.line'
 
-        lines = self._get_account_move_lines()
-        if all(getattr(l, 'credit', _ZERO) == _ZERO and
-                getattr(l, 'debit', _ZERO) == _ZERO for l in lines):
-            return
-
-        return Move(
-            origin=self,
-            period=period_id,
-            journal=self._get_accounting_journal(),
-            date=accounting_date,
-            lines=lines,
-            )
-
-    def _get_reconcile_move(self):
-        "Return the move object to create"
-        pool = Pool()
-        Move = pool.get('account.move')
-        Date = pool.get('ir.date')
-        Period = pool.get('account.period')
-
-        accounting_date = Date().today()
-        period_id = Period.find(self.company.id, date=accounting_date)
-
-        return Move(
-            origin=self,
-            period=period_id,
-            journal=self._get_accounting_journal(),
-            date=accounting_date,
-            )
-
-    def _get_account_move_lines(self):
-        "Return the move object to create"
-        pool = Pool()
-        Line = pool.get('account.move.line')
-        Currency = pool.get('currency.currency')
-        Config = pool.get('sale.configuration')
-        config = Config(1)
-
-        shipment_amount = _ZERO
-
-        posted_amounts = {}.fromkeys([x for x in self.lines], _ZERO)
-        for line in Line.search([
-                    ('sale_line', 'in', [x.id for x in self.lines])
-                    ]):
-            posted_amounts[line.sale_line] += line.credit - line.debit
-
-        lines = []
-        #One line for each sale_line
-        for sale_line, quantity in self._get_shipment_quantity().iteritems():
-            account = sale_line.product.account_revenue_used
-            line = Line()
-            line.account = account
-            if line.account.party_required:
-                line.party = self.party
-            line.sale_line = sale_line
-            amount = Currency.compute(self.company.currency,
-                Decimal(quantity) * sale_line.unit_price, self.currency)
-            amount -= posted_amounts[sale_line]
-            if amount > 0:
-                line.credit = abs(amount)
-                line.debit = _ZERO
-            else:
-                line.debit = abs(amount)
-                line.credit = _ZERO
-            self._set_analytic_lines(line, sale_line)
-            lines.append(line)
-            shipment_amount += amount
-
-        #Line with invoice_pending amount
-        line = Line()
-        line.account = config.pending_invoice_account
-        if line.account.party_required:
-            line.party = self.party
-        if shipment_amount > 0:
-            line.debit = abs(shipment_amount)
-        else:
-            line.credit = abs(shipment_amount)
-        lines.append(line)
-
-        return lines
-
-    def _set_analytic_lines(self, move_line, sale_line):
-        "Sets the analytic_lines for a move_line related to sale_line"
-        pool = Pool()
-        Date = pool.get('ir.date')
-        try:
-            AnalyticLine = pool.get('analytic_account.line')
-        except KeyError:
-            return []
-
-        lines = []
-        if (sale_line.analytic_accounts and
-                sale_line.analytic_accounts.accounts):
-                for account in sale_line.analytic_accounts.accounts:
-                    line = AnalyticLine()
-                    line.name = sale_line.description
-                    line.debit = move_line.debit
-                    line.credit = move_line.credit
-                    line.account = account
-                    line.journal = self._get_accounting_journal()
-                    line.date = Date.today()
-                    line.reference = self.reference
-                    if hasattr(move_line, 'party'):
-                        line.party = move_line.party
-                    lines.append(line)
-        move_line.analytic_lines = lines
-        return lines
-
-
-class Move:
-    __name__ = 'account.move'
+    analytic_required = fields.Function(fields.Boolean("Require Analytics"),
+        'on_change_with_analytic_required')
 
     @classmethod
-    def _get_origin(cls):
-        origins = super(Move, cls)._get_origin()
-        if not 'sale.sale' in origins:
-            origins.append('sale.sale')
-        return origins
+    def __setup__(cls):
+        super(SaleLine, cls).__setup__()
+        if hasattr(cls, 'analytic_accounts'):
+            if not cls.analytic_accounts.states:
+                cls.analytic_accounts.states = {}
+            if cls.analytic_accounts.states.get('required'):
+                cls.analytic_accounts.states['required'] |= (
+                    Eval('analytic_required', False))
+            else:
+                cls.analytic_accounts.states['required'] = (
+                    Eval('analytic_required', False))
 
+    @fields.depends('product')
+    def on_change_with_analytic_required(self, name=None):
+        if not hasattr(self, 'analytic_accounts'):
+            return False
 
-class Line:
-    __name__ = 'account.move.line'
-    sale_line = fields.Many2One('sale.line', 'Sale Line')
+        if getattr(self.product.account_revenue_used, 'analytic_required',
+                    False):
+            return True
+        return False
+
+    def _get_stock_account_move_lines(self, pending_invoice_account):
+        """
+        Return the account move lines for shipped quantities and
+        to reconcile shipped and invoiced (and posted) quantities
+        """
+        pool = Pool()
+        MoveLine = pool.get('account.move.line')
+        Currency = pool.get('currency.currency')
+
+        if (not self.product or self.product.type == 'service' or
+                not self.moves):
+            # Sale Line not shipped
+            return []
+
+        unposted_shiped_quantity = self._get_unposted_shiped_quantity()
+
+        # Previously created stock account move lines (pending to invoice
+        # amount)
+        lines_to_reconcile = MoveLine.search([
+                    ('sale_line', '=', self),
+                    ('account', '=', pending_invoice_account),
+                    ('reconciliation', '=', None),
+                    ])
+
+        move_lines = []
+        if not unposted_shiped_quantity and not lines_to_reconcile:
+            return move_lines
+
+        # Reconcile previously created (and not yet reconciled)
+        # stock account move lines: all or partialy invoiced now
+        # it use amount  because it has been created using quantities and
+        # sale line unit price => it is reliable
+        amount_to_reconcile = sum(l.debit - l.credit
+            for l in lines_to_reconcile) if lines_to_reconcile else _ZERO
+        if amount_to_reconcile != _ZERO:
+            to_reconcile_line = MoveLine()
+            to_reconcile_line.account = pending_invoice_account
+            if to_reconcile_line.account.party_required:
+                to_reconcile_line.party = self.sale.party
+            if amount_to_reconcile > Decimal('0.0'):
+                to_reconcile_line.credit = amount_to_reconcile
+                to_reconcile_line.debit = _ZERO
+            else:
+                to_reconcile_line.debit = abs(amount_to_reconcile)
+                to_reconcile_line.credit = _ZERO
+            to_reconcile_line.reconciliation = None
+            move_lines.append(to_reconcile_line)
+
+        pending_amount = Currency.compute(self.sale.company.currency,
+            Decimal(unposted_shiped_quantity) * self.unit_price,
+            self.sale.currency) if unposted_shiped_quantity else _ZERO
+
+        if amount_to_reconcile == _ZERO and not unposted_shiped_quantity:
+            # no previous amount in pending invoice account nor pending to
+            # invoice (and post) quantity => first time
+            invoiced_amount = -pending_amount
+        elif not unposted_shiped_quantity:
+            # no pending to invoice and post quantity => invoiced all shiped
+            invoiced_amount = amount_to_reconcile
+        else:
+            # invoiced partially shiped quantity
+            invoiced_amount = amount_to_reconcile - pending_amount
+            pending_amount = amount_to_reconcile - invoiced_amount
+
+        if invoiced_amount != _ZERO:
+            invoiced_line = MoveLine()
+            invoiced_line.account = self.product.account_revenue_used
+            if invoiced_line.account.party_required:
+                invoiced_line.party = self.sale.party
+            invoiced_line.sale_line = self
+            if invoiced_amount > _ZERO:
+                invoiced_line.debit = invoiced_amount
+                invoiced_line.credit = _ZERO
+            else:
+                invoiced_line.credit = abs(invoiced_amount)
+                invoiced_line.debit = _ZERO
+            self._set_analytic_lines(invoiced_line)
+            move_lines.append(invoiced_line)
+
+        if pending_amount != _ZERO:
+            pending_line = MoveLine()
+            pending_line.account = pending_invoice_account
+            if pending_line.account.party_required:
+                pending_line.party = self.sale.party
+            pending_line.sale_line = self
+            if pending_amount > _ZERO:
+                pending_line.debit = pending_amount
+                pending_line.credit = _ZERO
+            else:
+                pending_line.credit = abs(pending_amount)
+                pending_line.debit = _ZERO
+            move_lines.append(pending_line)
+
+        return move_lines
+
+    def _get_unposted_shiped_quantity(self):
+        """
+        Returns the shipped quantity which is not invoiced and posted
+        """
+        pool = Pool()
+        Uom = pool.get('product.uom')
+
+        skip_ids = set(x.id for x in self.moves_ignored)
+        skip_ids.update(x.id for x in self.moves_recreated)
+        sign = -1 if self.quantity < 0.0 else 1
+        unposted_quantity = 0.0
+        for move in self.moves:
+            if (move.state != 'done' or move.id in skip_ids or
+                    move.posted_quantity >= move.quantity):
+                continue
+            unposted_quantity += sign * Uom.compute_qty(move.uom,
+                move.quantity - move.posted_quantity, self.unit)
+        return unposted_quantity
+
+    def _set_analytic_lines(self, move_line):
+        """
+        Add to supplied account move line analytic lines based on sale line
+        analytic accounts value
+        """
+        pool = Pool()
+        Date = pool.get('ir.date')
+
+        if (not getattr(self, 'analytic_accounts', False) or
+                not self.analytic_accounts.accounts):
+            return []
+
+        AnalyticLine = pool.get('analytic_account.line')
+        move_line.analytic_lines = []
+        for account in self.analytic_accounts.accounts:
+            line = AnalyticLine()
+            move_line.analytic_lines.append(line)
+
+            line.name = self.description
+            line.debit = move_line.debit
+            line.credit = move_line.credit
+            line.account = account
+            line.journal = self.sale._get_accounting_journal()
+            line.date = Date.today()
+            line.reference = self.sale.reference
+            line.party = self.sale.party
