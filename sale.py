@@ -163,7 +163,7 @@ class SaleLine:
 
     @fields.depends('product')
     def on_change_with_analytic_required(self, name=None):
-        if not hasattr(self, 'analytic_accounts'):
+        if not hasattr(self, 'analytic_accounts') or not self.product:
             return False
 
         if getattr(self.product.account_revenue_used, 'analytic_required',
