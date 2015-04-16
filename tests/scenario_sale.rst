@@ -421,8 +421,8 @@ Open customer invoice::
     ...     ('account', '=', pending_receivable.id),
     ...     ('reconciliation', '=', None),
     ...     ])
-    >>> line, = account_moves
-    >>> line.debit == Decimal('200.0')
+    >>> line,_ = account_moves
+    >>> sum([a.debit for a in account_moves]) == Decimal('200.0')
     True
     >>> account_moves = AccountMoveLine.find([
     ...     ('account.code', '=', 'R1'),
