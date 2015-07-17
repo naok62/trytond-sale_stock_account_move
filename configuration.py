@@ -65,5 +65,5 @@ class ConfigurationCompany(ModelSQL):
     pending_invoice_account = fields.Many2One('account.account',
         'Pending Invoice Account',
             domain=[
-                ('kind', '=', 'receivable'),
+                ('kind', '!=', 'view'),
                 ])
