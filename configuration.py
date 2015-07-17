@@ -14,7 +14,7 @@ class Configuration:
     pending_invoice_account = fields.Function(fields.Many2One(
             'account.account', 'Pending Invoice Account', required=True,
             domain=[
-                ('kind', '=', 'receivable'),
+                ('kind', '!=', 'view'),
                 ]), 'get_company_config', 'set_company_config')
 
     @classmethod
