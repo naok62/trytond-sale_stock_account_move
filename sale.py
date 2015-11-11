@@ -81,7 +81,7 @@ class Sale:
         if not config.pending_invoice_account:
             self.raise_user_error('no_pending_invoice_account')
 
-        with Transaction().set_user(0, set_context=True):
+        with Transaction().set_context(_check_access=False):
             account_move = self._get_stock_account_move(
                 config.pending_invoice_account)
             if account_move:
