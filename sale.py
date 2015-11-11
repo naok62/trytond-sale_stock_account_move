@@ -235,6 +235,9 @@ class SaleLine:
             invoiced_amount = amount_to_reconcile - pending_amount
             pending_amount = amount_to_reconcile - invoiced_amount
 
+        if pending_amount == amount_to_reconcile:
+            return []
+
         if invoiced_amount != _ZERO:
             invoiced_line = MoveLine()
             invoiced_line.account = self.product.account_revenue_used
@@ -273,13 +276,10 @@ class SaleLine:
         pool = Pool()
         Uom = pool.get('product.uom')
 
-        skip_ids = set(x.id for x in self.moves_ignored)
-        skip_ids.update(x.id for x in self.moves_recreated)
         sign = -1 if self.quantity < 0.0 else 1
         unposted_quantity = 0.0
         for move in self.moves:
-            if (move.state != 'done' or move.id in skip_ids or
-                    move.posted_quantity >= move.quantity):
+            if move.state != 'done':
                 continue
             unposted_quantity += sign * Uom.compute_qty(move.uom,
                 move.quantity - move.posted_quantity, self.unit)
