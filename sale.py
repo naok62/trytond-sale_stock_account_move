@@ -99,7 +99,9 @@ class Sale:
                                 ('sale_line', '=', None),
                                 ],
                             ])
-                if to_reconcile:
+                credit = sum(l.credit for l in to_reconcile)
+                debit = sum(l.debit for l in to_reconcile)
+                if to_reconcile and credit == debit:
                     MoveLine.reconcile(to_reconcile)
 
     def _get_stock_account_move(self, pending_invoice_account):
