@@ -295,21 +295,23 @@ class SaleLine:
         pool = Pool()
         Date = pool.get('ir.date')
 
-        if (not getattr(self, 'analytic_accounts', False) or
-                not self.analytic_accounts.accounts):
+        if not getattr(self, 'analytic_accounts', False):
             return []
 
         AnalyticLine = pool.get('analytic_account.line')
-        move_line.analytic_lines = []
-        for account in self.analytic_accounts.accounts:
+        analytic_lines = []
+        for entry in self.analytic_accounts:
+            if not entry.account:
+                continue
             line = AnalyticLine()
-            move_line.analytic_lines.append(line)
+            analytic_lines.append(line)
 
             line.name = self.description
             line.debit = move_line.debit
             line.credit = move_line.credit
-            line.account = account
+            line.account = entry.account
             line.journal = self.sale._get_accounting_journal()
             line.date = Date.today()
             line.reference = self.sale.reference
             line.party = self.sale.party
+        move_line.analytic_lines = analytic_lines

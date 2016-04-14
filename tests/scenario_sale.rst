@@ -9,6 +9,12 @@ Imports::
     >>> from decimal import Decimal
     >>> from operator import attrgetter
     >>> from proteus import config, Model, Wizard
+    >>> from trytond.modules.company.tests.tools import create_company, \
+    ...     get_company
+    >>> from trytond.modules.account.tests.tools import create_fiscalyear, \
+    ...     create_chart, get_accounts
+    >>> from trytond.modules.account_invoice.tests.tools import \
+    ...     set_fiscalyear_invoice_sequences, create_payment_term
     >>> today = datetime.date.today()
 
 Create database::
@@ -18,36 +24,15 @@ Create database::
 
 Install sale::
 
-    >>> Module = Model.get('ir.module.module')
-    >>> sale_module, = Module.find([('name', '=', 'sale_stock_account_move')])
-    >>> Module.install([sale_module.id], config.context)
-    >>> Wizard('ir.module.module.install_upgrade').execute('upgrade')
+    >>> Module = Model.get('ir.module')
+    >>> module, = Module.find([('name', '=', 'sale_stock_account_move')])
+    >>> module.click('install')
+    >>> Wizard('ir.module.install_upgrade').execute('upgrade')
 
 Create company::
 
-    >>> Currency = Model.get('currency.currency')
-    >>> CurrencyRate = Model.get('currency.currency.rate')
-    >>> currencies = Currency.find([('code', '=', 'EUR')])
-    >>> if not currencies:
-    ...     currency = Currency(name='Euro', symbol=u'€', code='EUR',
-    ...         rounding=Decimal('0.01'), mon_grouping='[3, 3, 0]',
-    ...         mon_decimal_point=',')
-    ...     currency.save()
-    ...     CurrencyRate(date=today + relativedelta(month=1, day=1),
-    ...         rate=Decimal('1.0'), currency=currency).save()
-    ... else:
-    ...     currency, = currencies
-    >>> Company = Model.get('company.company')
-    >>> Party = Model.get('party.party')
-    >>> company_config = Wizard('company.company.config')
-    >>> company_config.execute('company')
-    >>> company = company_config.form
-    >>> party = Party(name='B2CK')
-    >>> party.save()
-    >>> company.party = party
-    >>> company.currency = currency
-    >>> company_config.execute('add')
-    >>> company, = Company.find([])
+    >>> _ = create_company()
+    >>> company = get_company()
 
 Reload the context::
 
@@ -87,49 +72,21 @@ Create account user::
 
 Create fiscal year::
 
-    >>> FiscalYear = Model.get('account.fiscalyear')
-    >>> Sequence = Model.get('ir.sequence')
-    >>> SequenceStrict = Model.get('ir.sequence.strict')
-    >>> fiscalyear = FiscalYear(name=str(today.year))
-    >>> fiscalyear.start_date = today + relativedelta(month=1, day=1)
-    >>> fiscalyear.end_date = today + relativedelta(month=12, day=31)
-    >>> fiscalyear.company = company
-    >>> post_move_seq = Sequence(name=str(today.year), code='account.move',
-    ...     company=company)
-    >>> post_move_seq.save()
-    >>> fiscalyear.post_move_sequence = post_move_seq
-    >>> invoice_seq = SequenceStrict(name=str(today.year),
-    ...     code='account.invoice', company=company)
-    >>> invoice_seq.save()
-    >>> fiscalyear.out_invoice_sequence = invoice_seq
-    >>> fiscalyear.in_invoice_sequence = invoice_seq
-    >>> fiscalyear.out_credit_note_sequence = invoice_seq
-    >>> fiscalyear.in_credit_note_sequence = invoice_seq
-    >>> fiscalyear.save()
-    >>> FiscalYear.create_period([fiscalyear.id], config.context)
+    >>> fiscalyear = set_fiscalyear_invoice_sequences(
+    ...     create_fiscalyear(company))
+    >>> fiscalyear.click('create_period')
 
 Create chart of accounts::
 
-    >>> AccountTemplate = Model.get('account.account.template')
+    >>> _ = create_chart(company)
+    >>> accounts = get_accounts(company)
+    >>> revenue = accounts['revenue']
+    >>> expense = accounts['expense']
+    >>> receivable = accounts['receivable']
+
+Create pending revenue and a second revenue account::
+
     >>> Account = Model.get('account.account')
-    >>> account_template, = AccountTemplate.find([('parent', '=', None)])
-    >>> create_chart = Wizard('account.create_chart')
-    >>> create_chart.execute('account')
-    >>> create_chart.form.account_template = account_template
-    >>> create_chart.form.company = company
-    >>> create_chart.execute('create_account')
-    >>> receivable, = Account.find([
-    ...         ('kind', '=', 'receivable'),
-    ...         ('company', '=', company.id),
-    ...         ])
-    >>> payable, = Account.find([
-    ...         ('kind', '=', 'payable'),
-    ...         ('company', '=', company.id),
-    ...         ])
-    >>> revenue, = Account.find([
-    ...         ('kind', '=', 'revenue'),
-    ...         ('company', '=', company.id),
-    ...         ])
     >>> revenue.code = 'R1'
     >>> revenue.save()
     >>> revenue2 = Account()
@@ -147,13 +104,6 @@ Create chart of accounts::
     >>> pending_receivable.reconcile = True
     >>> pending_receivable.parent = receivable.parent
     >>> pending_receivable.save()
-    >>> expense, = Account.find([
-    ...         ('kind', '=', 'expense'),
-    ...         ('company', '=', company.id),
-    ...         ])
-    >>> create_chart.form.account_receivable = receivable
-    >>> create_chart.form.account_payable = payable
-    >>> create_chart.execute('create_properties')
 
 Configure sale to track pending_receivables in accounting::
 
@@ -235,11 +185,7 @@ Create products::
 
 Create payment term::
 
-    >>> PaymentTerm = Model.get('account.invoice.payment_term')
-    >>> PaymentTermLine = Model.get('account.invoice.payment_term.line')
-    >>> payment_term = PaymentTerm(name='Direct')
-    >>> payment_term_line = PaymentTermLine(type='remainder', days=0)
-    >>> payment_term.lines.append(payment_term_line)
+    >>> payment_term = create_payment_term()
     >>> payment_term.save()
 
 Create an Inventory::
@@ -273,23 +219,19 @@ Sale services::
     >>> config.user = sale_user.id
     >>> AccountMoveLine = Model.get('account.move.line')
     >>> Sale = Model.get('sale.sale')
-    >>> SaleLine = Model.get('sale.line')
     >>> sale = Sale()
     >>> sale.party = customer
     >>> sale.payment_term = payment_term
     >>> sale.invoice_method = 'order'
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.product = service_product
     >>> sale_line.quantity = 2.0
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.type = 'comment'
     >>> sale_line.description = 'Comment'
-    >>> sale.save()
-    >>> Sale.quote([sale.id], config.context)
-    >>> Sale.confirm([sale.id], config.context)
-    >>> Sale.process([sale.id], config.context)
+    >>> sale.click('quote')
+    >>> sale.click('confirm')
+    >>> sale.click('process')
     >>> sale.state
     u'processing'
     >>> sale.reload()
@@ -302,33 +244,28 @@ Sale services::
     >>> moves = AccountMoveLine.find([
     ...     ('account', '=', pending_receivable.id)
     ...     ])
-    >>> len(moves) == 0
-    True
+    >>> len(moves)
+    0
 
 Sale products::
 
     >>> config.user = sale_user.id
     >>> Sale = Model.get('sale.sale')
-    >>> SaleLine = Model.get('sale.line')
     >>> sale = Sale()
     >>> sale.party = customer
     >>> sale.payment_term = payment_term
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.product = product1
     >>> sale_line.quantity = 20.0
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.type = 'comment'
     >>> sale_line.description = 'Comment'
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.product = product2
     >>> sale_line.quantity = 20.0
-    >>> sale.save()
-    >>> Sale.quote([sale.id], config.context)
-    >>> Sale.confirm([sale.id], config.context)
-    >>> Sale.process([sale.id], config.context)
+    >>> sale.click('quote')
+    >>> sale.click('confirm')
+    >>> sale.click('process')
     >>> sale.state
     u'processing'
     >>> sale.reload()
@@ -344,11 +281,10 @@ Validate Shipments::
     >>> ShipmentOut = Model.get('stock.shipment.out')
     >>> for move in shipment.inventory_moves:
     ...     move.quantity = 15.0
-    >>> shipment.save()
-    >>> ShipmentOut.assign_try([shipment.id], config.context)
+    >>> shipment.click('assign_try')
     True
-    >>> ShipmentOut.pack([shipment.id], config.context)
-    >>> ShipmentOut.done([shipment.id], config.context)
+    >>> shipment.click('pack')
+    >>> shipment.click('done')
     >>> config.user = account_user.id
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
@@ -356,32 +292,28 @@ Validate Shipments::
     ...     ])
     >>> len(account_moves)
     2
-    >>> sum([a.debit for a in account_moves]) == Decimal('600.0')
-    True
-    >>> account_moves = AccountMoveLine.find([
+    >>> sum([a.debit for a in account_moves])
+    Decimal('600.00')
+    >>> account_move, = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account.code', '=', 'R1'),
     ...     ])
-    >>> len(account_moves) == 1
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('225.0')
-    True
-    >>> account_moves = AccountMoveLine.find([
+    >>> account_move.credit
+    Decimal('225.00')
+    >>> account_move, = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account.code', '=', 'R2'),
     ...     ])
-    >>> len(account_moves) == 1
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('375.0')
-    True
+    >>> account_move.credit
+    Decimal('375.00')
     >>> config.user = sale_user.id
     >>> sale.reload()
     >>> shipment, = sale.shipments.find([('state', '=', 'waiting')])
     >>> config.user = stock_user.id
-    >>> ShipmentOut.assign_try([shipment.id], config.context)
+    >>> shipment.click('assign_try')
     True
-    >>> ShipmentOut.pack([shipment.id], config.context)
-    >>> ShipmentOut.done([shipment.id], config.context)
+    >>> shipment.click('pack')
+    >>> shipment.click('done')
     >>> config.user = account_user.id
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
@@ -389,24 +321,24 @@ Validate Shipments::
     ...     ])
     >>> len(account_moves)
     6
-    >>> sum([a.debit - a.credit for a in account_moves]) == Decimal('800.0')
-    True
+    >>> sum([a.debit - a.credit for a in account_moves])
+    Decimal('800.00')
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account.code', '=', 'R1'),
     ...     ])
-    >>> len(account_moves) == 2
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('300.0')
-    True
+    >>> len(account_moves)
+    2
+    >>> sum([a.credit for a in account_moves])
+    Decimal('300.00')
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account.code', '=', 'R2'),
     ...     ])
-    >>> len(account_moves) == 2
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('500.0')
-    True
+    >>> len(account_moves)
+    2
+    >>> sum([a.credit for a in account_moves])
+    Decimal('500.00')
 
 Open customer invoice::
 
@@ -422,59 +354,55 @@ Open customer invoice::
     ...     ('reconciliation', '=', None),
     ...     ])
     >>> line,_ = account_moves
-    >>> sum([a.debit for a in account_moves]) == Decimal('200.0')
-    True
+    >>> sum([a.debit for a in account_moves])
+    Decimal('200.00')
     >>> account_moves = AccountMoveLine.find([
     ...     ('account.code', '=', 'R1'),
     ...     ])
-    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('300.0')
-    True
+    >>> sum([a.credit - a.debit for a in account_moves])
+    Decimal('300.00')
     >>> account_moves = AccountMoveLine.find([
     ...     ('account.code', '=', 'R2'),
     ...     ])
-    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('500.0')
-    True
+    >>> sum([a.credit - a.debit for a in account_moves])
+    Decimal('500.00')
     >>> Invoice.post([invoice2.id], config.context)
     >>> AccountMoveLine = Model.get('account.move.line')
     >>> account_moves = AccountMoveLine.find([
     ...     ('origin', '=', 'sale.sale,' + str(sale.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> sum([a.debit - a.credit for a in account_moves]) == Decimal('0.0')
-    True
+    >>> sum([a.debit - a.credit for a in account_moves])
+    Decimal('0.00')
     >>> all(a.reconciliation is not None for a in account_moves)
     True
     >>> account_moves = AccountMoveLine.find([
     ...     ('account.code', '=', 'R1'),
     ...     ])
-    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('300.0')
-    True
+    >>> sum([a.credit - a.debit for a in account_moves])
+    Decimal('300.00')
     >>> account_moves = AccountMoveLine.find([
     ...     ('account.code', '=', 'R2'),
     ...     ])
-    >>> sum([a.credit - a.debit for a in account_moves]) == Decimal('500.0')
-    True
+    >>> sum([a.credit - a.debit for a in account_moves])
+    Decimal('500.00')
 
 
 Sell products and invoice with diferent amount::
 
     >>> config.user = sale_user.id
     >>> Sale = Model.get('sale.sale')
-    >>> SaleLine = Model.get('sale.line')
     >>> sale = Sale()
     >>> sale.party = customer
     >>> sale.payment_term = payment_term
-    >>> sale_line = SaleLine()
-    >>> sale.lines.append(sale_line)
+    >>> sale_line = sale.lines.new()
     >>> sale_line.product = product1
     >>> sale_line.quantity = 20.0
-    >>> sale.save()
-    >>> Sale.quote([sale.id], config.context)
-    >>> Sale.confirm([sale.id], config.context)
-    >>> Sale.process([sale.id], config.context)
+    >>> sale.click('quote')
+    >>> sale.click('confirm')
+    >>> sale.click('process')
     >>> sale.state
     u'processing'
-    >>> sale.reload()
     >>> len(sale.shipments), len(sale.shipment_returns), len(sale.invoices)
     (1, 0, 0)
     >>> shipment, = sale.shipments
@@ -501,21 +429,17 @@ Create a Return::
     >>> return_ = Sale()
     >>> return_.party = customer
     >>> return_.payment_term = payment_term
-    >>> return_line = SaleLine()
-    >>> return_.lines.append(return_line)
+    >>> return_line = return_.lines.new()
     >>> return_line.product = product1
     >>> return_line.quantity = -4.
-    >>> return_line = SaleLine()
-    >>> return_.lines.append(return_line)
+    >>> return_line = return_.lines.new()
     >>> return_line.type = 'comment'
     >>> return_line.description = 'Comment'
-    >>> return_.save()
-    >>> Sale.quote([return_.id], config.context)
-    >>> Sale.confirm([return_.id], config.context)
-    >>> Sale.process([return_.id], config.context)
+    >>> return_.click('quote')
+    >>> return_.click('confirm')
+    >>> return_.click('process')
     >>> return_.state
     u'processing'
-    >>> return_.reload()
     >>> (len(return_.shipments), len(return_.shipment_returns),
     ...     len(return_.invoices))
     (0, 1, 0)
@@ -533,15 +457,13 @@ Check Return Shipments::
     >>> move_return.quantity
     4.0
     >>> config.user = account_user.id
-    >>> account_moves = AccountMoveLine.find([
+    >>> account_move, = AccountMoveLine.find([
     ...     ('reconciliation', '=', None),
     ...     ('origin', '=', 'sale.sale,' + str(return_.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> len(account_moves) == 1
-    True
-    >>> sum([a.credit for a in account_moves]) == Decimal('60.0')
-    True
+    >>> account_move.credit
+    Decimal('60.00')
 
 Open customer credit note::
 
@@ -561,6 +483,5 @@ Open customer credit note::
     ...     ('origin', '=', 'sale.sale,' + str(return_.id)),
     ...     ('account', '=', pending_receivable.id),
     ...     ])
-    >>> len(account_moves) == 0
-    True
-
+    >>> len(account_moves)
+    0
