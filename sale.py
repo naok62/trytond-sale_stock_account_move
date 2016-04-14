@@ -284,7 +284,7 @@ class SaleLine:
             if move.state != 'done':
                 continue
             unposted_quantity += sign * Uom.compute_qty(move.uom,
-                move.quantity - move.posted_quantity, self.unit)
+                move.quantity - (sign * move.posted_quantity), self.unit)
         return unposted_quantity
 
     def _set_analytic_lines(self, move_line):

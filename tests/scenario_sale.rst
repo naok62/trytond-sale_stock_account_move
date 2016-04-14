@@ -451,6 +451,7 @@ Check Return Shipments::
     >>> config.user = stock_user.id
     >>> ShipmentReturn = Model.get('stock.shipment.out.return')
     >>> ShipmentReturn.receive([ship_return.id], config.context)
+    >>> ShipmentReturn.done([ship_return.id], config.context)
     >>> move_return, = ship_return.incoming_moves
     >>> move_return.product.rec_name
     u'product'
@@ -472,11 +473,12 @@ Open customer credit note::
     >>> credit_note, = return_.invoices
     >>> config.user = account_user.id
     >>> credit_note.type
-    u'out_credit_note'
+    u'out'
     >>> len(credit_note.lines)
     1
     >>> sum(l.quantity for l in credit_note.lines)
-    4.0
+    -4.0
+    >>> config.user = account_user.id
     >>> Invoice.post([credit_note.id], config.context)
     >>> account_moves = AccountMoveLine.find([
     ...     ('reconciliation', '=', None),
