@@ -250,7 +250,7 @@ Sale products::
     True
     >>> analytic_account.reload()
     >>> analytic_account.credit
-    Decimal('0.0')
+    Decimal('0.00')
 
 Validate Shipments::
 
