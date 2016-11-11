@@ -84,17 +84,17 @@ Create pending revenue and a second revenue account::
     >>> revenue2 = Account()
     >>> revenue2.code = 'R2'
     >>> revenue2.name = 'Second Revenue'
+    >>> revenue2.parent = revenue.parent
     >>> revenue2.type = revenue.type
     >>> revenue2.kind = 'revenue'
-    >>> revenue2.parent = revenue.parent
     >>> revenue2.save()
     >>> pending_receivable = Account()
     >>> pending_receivable.code = 'PR'
     >>> pending_receivable.name = 'Pending Receivable'
+    >>> pending_receivable.parent = receivable.parent
     >>> pending_receivable.type = receivable.type
     >>> pending_receivable.kind = 'receivable'
     >>> pending_receivable.reconcile = True
-    >>> pending_receivable.parent = receivable.parent
     >>> pending_receivable.save()
 
 Configure sale to track pending_receivables in accounting::
