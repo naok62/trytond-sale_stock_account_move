@@ -32,7 +32,7 @@ msgstr "Usuari de creació"
 
 msgctxt "field:sale.configuration.company,id:"
 msgid "ID"
-msgstr "Identificador"
+msgstr "ID"
 
 msgctxt "field:sale.configuration.company,pending_invoice_account:"
 msgid "Pending Invoice Account"
